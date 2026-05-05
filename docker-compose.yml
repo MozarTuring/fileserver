@@ -2,6 +2,6 @@ services:
   fileserver:
     build: .
     ports:
-      - "8080:80"
+      - "18900:80"
     volumes:
       - ${RUN_DIR_PRE}/remote_data/:/srv/data:ro
