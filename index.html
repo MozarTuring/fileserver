@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>File Browser</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f0f0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #fff;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #2a2a2a;
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+  .breadcrumb { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .breadcrumb a { color: #7cacf8; text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  .breadcrumb span { color: #666; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #888;
+    border-bottom: 1px solid #2a2a2a;
+    cursor: pointer;
+    user-select: none;
+  }
+  th:hover { color: #bbb; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1a1a1a; }
+  tr:hover td { background: #1a1a1a; }
+  a.file-link {
+    color: #e0e0e0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  a.file-link:hover { color: #7cacf8; }
+  .icon { font-size: 1.1rem; width: 24px; text-align: center; flex-shrink: 0; }
+  .size, .date { color: #888; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  .date { white-space: nowrap; }
+  .empty { text-align: center; color: #666; padding: 48px 0; }
+  @media (max-width: 600px) {
+    .hide-mobile { display: none; }
+    td, th { padding: 8px 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1 id="header"></h1>
+  <table>
+    <thead>
+      <tr>
+        <th data-sort="name">Name</th>
+        <th data-sort="size" class="hide-mobile">Size</th>
+        <th data-sort="mtime">Modified</th>
+      </tr>
+    </thead>
+    <tbody id="listing"></tbody>
+  </table>
+  <div id="empty" class="empty" style="display:none">This directory is empty.</div>
+</div>
+<script>
+const ICONS = {
+  dir: '📁', image: '🖼️', video: '🎬', audio: '🎵', pdf: '📕',
+  archive: '📦', code: '💻', text: '📄', default: '📄'
+};
+
+const EXT_MAP = {
+  image: ['png','jpg','jpeg','gif','svg','webp','ico','bmp'],
+  video: ['mp4','mkv','avi','mov','webm','flv'],
+  audio: ['mp3','wav','flac','ogg','aac','m4a'],
+  pdf: ['pdf'],
+  archive: ['zip','tar','gz','bz2','7z','rar','xz'],
+  code: ['py','js','ts','jsx','tsx','go','rs','c','cpp','h','java','rb','sh','css','html','json','yaml','yml','toml','md'],
+  text: ['txt','log','csv','ini','cfg','conf']
+};
+
+function getIcon(name, isDir) {
+  if (isDir) return ICONS.dir;
+  const ext = name.split('.').pop().toLowerCase();
+  for (const [type, exts] of Object.entries(EXT_MAP)) {
+    if (exts.includes(ext)) return ICONS[type];
+  }
+  return ICONS.default;
+}
+
+function formatSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const units = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' })
+    + ' ' + d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' });
+}
+
+function buildBreadcrumb(path) {
+  const parts = path.replace(/^\/|\/$/g, '').split('/').filter(Boolean);
+  const header = document.getElementById('header');
+  header.innerHTML = '';
+  const bc = document.createElement('div');
+  bc.className = 'breadcrumb';
+  const rootLink = document.createElement('a');
+  rootLink.href = '/';
+  rootLink.textContent = '~';
+  bc.appendChild(rootLink);
+  let href = '/';
+  for (const part of parts) {
+    const sep = document.createElement('span');
+    sep.textContent = ' / ';
+    bc.appendChild(sep);
+    href += part + '/';
+    const a = document.createElement('a');
+    a.href = href;
+    a.textContent = decodeURIComponent(part);
+    bc.appendChild(a);
+  }
+  header.appendChild(bc);
+}
+
+let entries = [];
+let sortKey = 'name';
+let sortAsc = true;
+
+function render() {
+  const sorted = [...entries].sort((a, b) => {
+    if (a.type === 'directory' && b.type !== 'directory') return -1;
+    if (a.type !== 'directory' && b.type === 'directory') return 1;
+    let cmp = 0;
+    if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
+    else if (sortKey === 'size') cmp = (a.size || 0) - (b.size || 0);
+    else cmp = new Date(a.mtime) - new Date(b.mtime);
+    return sortAsc ? cmp : -cmp;
+  });
+
+  const tbody = document.getElementById('listing');
+  const empty = document.getElementById('empty');
+  tbody.innerHTML = '';
+
+  const path = decodeURIComponent(window.location.pathname);
+  if (path !== '/' && path !== '') {
+    const parentPath = path.replace(/\/[^/]*\/?$/, '/') || '/';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><a class="file-link" href="${parentPath}"><span class="icon">⬆️</span>..</a></td><td class="hide-mobile"></td><td></td>`;
+    tbody.appendChild(tr);
+  }
+
+  if (sorted.length === 0) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  for (const e of sorted) {
+    const isDir = e.type === 'directory';
+    const href = encodeURIComponent(e.name) + (isDir ? '/' : '');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><a class="file-link" href="${href}"><span class="icon">${getIcon(e.name, isDir)}</span>${e.name}</a></td>
+      <td class="size hide-mobile">${isDir ? '—' : formatSize(e.size || 0)}</td>
+      <td class="date">${formatDate(e.mtime)}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+document.querySelectorAll('th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (sortKey === key) sortAsc = !sortAsc;
+    else { sortKey = key; sortAsc = true; }
+    render();
+  });
+});
+
+async function load() {
+  const path = window.location.pathname.replace(/\/$/, '') || '';
+  buildBreadcrumb(path);
+  const apiPath = '/___api' + path + '/';
+  const res = await fetch(apiPath);
+  if (!res.ok) { document.getElementById('empty').style.display = 'block'; return; }
+  entries = await res.json();
+  render();
+}
+
+load();
+</script>
+</body>
+</html>
