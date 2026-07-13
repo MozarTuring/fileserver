@@ -53,6 +53,44 @@
   .size, .date { color: #888; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
   .date { white-space: nowrap; }
   .empty { text-align: center; color: #666; padding: 48px 0; }
+  .search-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .search-bar input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    background: #1a1a1a;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    outline: none;
+  }
+  .search-bar input:focus { border-color: #7cacf8; }
+  .search-bar button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    background: #7cacf8;
+    color: #0f0f0f;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .search-bar button:hover { background: #9dc2ff; }
+  .search-clear {
+    padding: 8px 12px;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    background: #1a1a1a;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .search-clear:hover { color: #e0e0e0; border-color: #444; }
+  .search-result-path { color: #666; font-size: 0.8rem; margin-left: 32px; }
   @media (max-width: 600px) {
     .hide-mobile { display: none; }
     td, th { padding: 8px 6px; }
@@ -62,6 +100,11 @@
 <body>
 <div class="container">
   <h1 id="header"></h1>
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Search files by name…">
+    <button onclick="doSearch()">Search</button>
+    <button class="search-clear" id="clearBtn" onclick="clearSearch()" style="display:none">Clear</button>
+  </div>
   <table>
     <thead>
       <tr>
@@ -196,6 +239,58 @@ async function load() {
   entries = await res.json();
   render();
 }
+
+let searchMode = false;
+
+function renderSearch(results) {
+  const tbody = document.getElementById('listing');
+  const empty = document.getElementById('empty');
+  tbody.innerHTML = '';
+
+  if (results.length === 0) {
+    empty.style.display = 'block';
+    empty.textContent = 'No files found.';
+    return;
+  }
+  empty.style.display = 'none';
+
+  for (const e of results) {
+    const isDir = e.type === 'directory';
+    const href = e.path + (isDir ? '/' : '');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <a class="file-link" href="${href}"><span class="icon">${getIcon(e.name, isDir)}</span>${e.name}</a>
+        <div class="search-result-path">${e.dir}</div>
+      </td>
+      <td class="size hide-mobile">${isDir ? '—' : formatSize(e.size || 0)}</td>
+      <td class="date">${formatDate(e.mtime)}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) return;
+  searchMode = true;
+  document.getElementById('clearBtn').style.display = '';
+  const res = await fetch('/___search?q=' + encodeURIComponent(q));
+  if (!res.ok) return;
+  const results = await res.json();
+  renderSearch(results);
+}
+
+function clearSearch() {
+  searchMode = false;
+  document.getElementById('searchInput').value = '';
+  document.getElementById('clearBtn').style.display = 'none';
+  document.getElementById('empty').textContent = 'This directory is empty.';
+  render();
+}
+
+document.getElementById('searchInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
 
 load();
 </script>
